@@ -54,8 +54,7 @@ image(1:31, 1:31, mean_nose_tip[31:1, 31:1], col=gray((0:255)/255))
 
 # Given a trained patch (output from GetKeypointPatch) for an arbitrary keypoint,
 # test a set of search patches for their correlation with the trained patch
-KeypointPatchTest <- function(data, test_image, stat_patch, keypoint, search_size=2) {
-  patch_size <- (nrow(stat_patch)-1)/2
+KeypointPatchTest <- function(data, test_image, stat_patch, patch_size, keypoint, search_size=2) {
   keypoint_x <- paste(keypoint, "x", sep="_")
   keypoint_y <- paste(keypoint, "y", sep="_")
   mean_x <- mean(d.train[, keypoint_x], na.rm=T)
@@ -74,8 +73,8 @@ KeypointPatchTest <- function(data, test_image, stat_patch, keypoint, search_siz
     score <- ifelse(is.na(score), 0, score)
     data.frame(x, y, score)
   }
-  print(r)
   match <- r[which.max(r$score), c('x', 'y')]
+  return(match)
 }
 
 # Function to superimpose result of KeypointPatchTest onto image
@@ -100,27 +99,37 @@ GetKeypointPatches <- function(d.train, d.test, keypoints) {
   return(mean_patches)
 }
 
+# Use patches to predict keypoint locations in single row of test data
+GetKeypointLocs <- function(im.test.i, keypoints, patches, patch_size, search_size) {
+  im.result <- foreach (k=1:length(keypoints), .combine=rbind ) %dopar% {
+    patch <- patches[k,]
+    k.name <- keypoints[k]
+    k.result <- KeypointPatchTest(d.train, im.test.i, patch, patch_size, k.name, search_size=search_size)
+    data.frame(k.result)
+  } 
+  return(im.result)
+}
+
 # Use patches to predict kepoint locations in test data
-PatchSearch <- function(d.test, im.test, keypoints, patches, search_size) {
-  locations <- foreach (j=1:nrow(im.test), .combine=rbind) %do% {
-    id <- d.test$ImageId[j]
+PatchSearch <- function(d.test, im.test, keypoints, patches, patch_size, search_size) {
+  locations <- NULL
+  for (j in 1:nrow(im.test)) {
+    id <- d.test[j, 1]
     im <- im.test[j,]
-    im.result <- foreach (k=1:length(keypoints), .combine=rbind ) %dopar% {
-      patch <- patches[k,]
-      k.name <- keypoints[k]
-      k.result <- KeypointPatchTest(d.train, im, patch, k.name, search_size=search_size)
-    }
+    im.result <- GetKeypointLocs(im, keypoints, patches, patch_size, search_size)
     im.result$Keypoints <- keypoints
     im.result$ImageId <- rep(id, length(keypoints))
-    im.result <- melt(im.result, id.vars=c("ImageId", "Keypoints", variable.name="Coord", value.name="Location"))
-    im.result$FeatureName <- paste(im.results$Keypoints, im.results$Coord, sep="_")
+    im.result <- melt(im.result, id.vars=c("ImageId", "Keypoints"), variable.name="Coord", value.name="Location")
+    im.result$FeatureName <- paste(im.result$Keypoints, im.result$Coord, sep="_")
     im.result$Keypoints <- NULL
     im.result$Coord <- NULL
+    locations <- rbind(locations, im.result)
   }
-  locations <- merge(s.submission, locations, all.x=T, sort=F)
-  submission <- locations[, c('RowId', 'Location')]
-  return(submission)
+  return(locations)
 }
 
 mean_keypoints <- GetKeypointPatches(d.train, d.test, keypoints)
-submission <- PatchSearch(d.test,im.test, keypoints, mean_keypoints, search_size=2)
+locations <- PatchSearch(d.test, im.test, keypoints, mean_keypoints, 10, search_size=2)
+s.submission$Location <- NULL
+submission <- merge(s.submission, locations, all.x=T, sort=F)
+write.csv(submission, paste0(output.dir, '/submission_patch_benchmark.csv'), quote=F, row.names=F)
