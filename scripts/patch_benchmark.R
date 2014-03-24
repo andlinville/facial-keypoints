@@ -91,9 +91,9 @@ left_eye_center_1 <- KeypointPatchTest(d.train, im.train[25,], mean_left_eye, "l
 ShowKeypointPatchTest(im.train[25,], left_eye_center_1)
 
 # Loop through all keypoints to get patches
-GetKeypointPatches <- function(d.train, d.test, keypoints) {
+GetKeypointPatches <- function(d.train, d.test, keypoints, patch_size) {
   mean_patches <- foreach (i=keypoints, .combine=rbind) %dopar% {
-    p <- GetKeypointStat(d.train, im.train, i, FUN=mean, patch_size=10)
+    p <- GetKeypointStat(d.train, im.train, i, FUN=mean, patch_size=patch_size)
     p <- as.vector(p)
   }
   return(mean_patches)
@@ -128,8 +128,19 @@ PatchSearch <- function(d.test, im.test, keypoints, patches, patch_size, search_
   return(locations)
 }
 
-mean_keypoints <- GetKeypointPatches(d.train, d.test, keypoints)
-locations <- PatchSearch(d.test, im.test, keypoints, mean_keypoints, 10, search_size=2)
+mean_keypoints_p12 <- GetKeypointPatches(d.train, d.test, keypoints, 12)
+mean_keypoints_p10 <- GetKeypointPatches(d.train, d.test, keypoints, 10)
+mean_keypoints_p8 <- GetKeypointPatches(d.train, d.test, keypoints, 8)
 s.submission$Location <- NULL
-submission <- merge(s.submission, locations, all.x=T, sort=F)
+
+locations_p10_ss2 <- PatchSearch(d.test, im.test, keypoints, mean_keypoints_p10, 10, search_size=2)
+submission <- merge(s.submission, locations_p10_ss2, all.x=T, sort=F)[,c('RowId', 'Location')]
 write.csv(submission, paste0(output.dir, '/submission_patch_benchmark.csv'), quote=F, row.names=F)
+
+locations_p8_ss4 <- PatchSearch(d.test, im.test, keypoints, mean_keypoints_p8, 8, search_size=4)
+submission <- merge(s.submission, locations_p8_ss4, all.x=T, sort=F)[,c('RowId', 'Location')]
+write.csv(submission, paste0(output.dir, '/submission_patch_benchmark_p8_ss4.csv'), quote=F, row.names=F)
+
+locations_p12_ss1 <- PatchSearch(d.test, im.test, keypoints, mean_keypoints_p12, 12, search_size=1)
+submission <- merge(s.submission, locations_p12_ss1, all.x=T, sort=F)[,c('RowId', 'Location')]
+write.csv(submission, paste0(output.dir, '/submission_patch_benchmark_p12_ss1.csv'), quote=F, row.names=F)
